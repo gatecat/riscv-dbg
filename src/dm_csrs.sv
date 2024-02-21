@@ -21,9 +21,9 @@ module dm_csrs #(
   parameter logic [NrHarts-1:0] SelectableHarts  = {NrHarts{1'b1}}
 ) (
   input  logic                              clk_i,           // Clock
-  input  logic                              rst_ni,          // Asynchronous reset active low
+   (* keep *) input  logic                              rst_ni,          // Asynchronous reset active low
   input  logic                              testmode_i,
-  input  logic                              dmi_rst_ni,      // sync. DTM reset,
+  (* keep *) input  logic                              dmi_rst_ni,      // sync. DTM reset,
                                                              // active-low
   input  logic                              dmi_req_valid_i,
   output logic                              dmi_req_ready_o,
@@ -86,10 +86,10 @@ module dm_csrs #(
   dm::dtm_op_e dtm_op;
   assign dtm_op = dm::dtm_op_e'(dmi_req_i.op);
 
-  logic        resp_queue_full;
-  logic        resp_queue_empty;
-  logic        resp_queue_push;
-  logic        resp_queue_pop;
+  (* keep *) logic        resp_queue_full;
+  (* keep *) logic        resp_queue_empty;
+  (* keep *) logic        resp_queue_push;
+  (* keep *) logic        resp_queue_pop;
 
   localparam dm::dm_csr_e DataEnd = dm::dm_csr_e'(dm::Data0 + {4'h0, dm::DataCount} - 8'h1);
   localparam dm::dm_csr_e ProgBufEnd = dm::dm_csr_e'(dm::ProgBuf0 + {4'h0, dm::ProgBufSize} - 8'h1);

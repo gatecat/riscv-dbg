@@ -25,15 +25,15 @@ module dmi_jtag_tap #(
   // xxxxxxxxxxx      manufacturer id
   // 1                required by standard
 ) (
-  input  logic        tck_i,    // JTAG test clock pad
+  input  logic        clk_i,
+  input  logic        tck_posedge_i,
+  input  logic        tck_negedge_i,
   input  logic        tms_i,    // JTAG test mode select pad
   input  logic        trst_ni,  // JTAG test reset pad
   input  logic        td_i,     // JTAG test data input pad
   output logic        td_o,     // JTAG test data output pad
   output logic        tdo_oe_o, // Data out output enable
   input  logic        testmode_i,
-  // JTAG is interested in writing the DTM CSR register
-  output logic        tck_o,
   // Synchronous reset of the dmi module triggered by JTAG TAP
   output logic        dmi_clear_o,
   output logic        update_o,
@@ -101,11 +101,11 @@ module dmi_jtag_tap #(
     end
   end
 
-  always_ff @(posedge tck_i, negedge trst_ni) begin : p_jtag_ir_reg
+  always_ff @(posedge clk_i, negedge trst_ni) begin : p_jtag_ir_reg
     if (!trst_ni) begin
       jtag_ir_shift_q <= '0;
       jtag_ir_q       <= IDCODE;
-    end else begin
+    end else if (tck_posedge_i) begin
       jtag_ir_shift_q <= jtag_ir_shift_d;
       jtag_ir_q       <= jtag_ir_d;
     end
@@ -187,24 +187,13 @@ module dmi_jtag_tap #(
   // ----------------
   logic tck_n, tck_ni;
 
-  tc_clk_inverter i_tck_inv (
-    .clk_i ( tck_i  ),
-    .clk_o ( tck_ni )
-  );
-
-  tc_clk_mux2 i_dft_tck_mux (
-    .clk0_i    ( tck_ni     ),
-    .clk1_i    ( tck_i      ), // bypass the inverted clock for testing
-    .clk_sel_i ( testmode_i ),
-    .clk_o     ( tck_n      )
-  );
 
   // TDO changes state at negative edge of TCK
-  always_ff @(posedge tck_n, negedge trst_ni) begin : p_tdo_regs
+  always_ff @(posedge clk_i, negedge trst_ni) begin : p_tdo_regs
     if (!trst_ni) begin
       td_o     <= 1'b0;
       tdo_oe_o <= 1'b0;
-    end else begin
+    end else if (tck_negedge_i) begin
       td_o     <= tdo_mux;
       tdo_oe_o <= (shift_ir | shift_dr);
     end
@@ -301,12 +290,12 @@ module dmi_jtag_tap #(
     endcase
   end
 
-  always_ff @(posedge tck_i or negedge trst_ni) begin : p_regs
+  always_ff @(posedge clk_i or negedge trst_ni) begin : p_regs
     if (!trst_ni) begin
       tap_state_q <= RunTestIdle;
       idcode_q    <= IdcodeValue;
       bypass_q    <= 1'b0;
-    end else begin
+    end else if (tck_posedge_i) begin
       tap_state_q <= tap_state_d;
       idcode_q    <= idcode_d;
       bypass_q    <= bypass_d;
@@ -315,7 +304,6 @@ module dmi_jtag_tap #(
 
   // Pass through JTAG signals to debug custom DR logic.
   // In case of a single TAP those are just feed-through.
-  assign tck_o = tck_i;
   assign tdi_o = td_i;
   assign update_o = update_dr;
   assign shift_o = shift_dr;

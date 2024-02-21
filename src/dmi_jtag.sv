@@ -25,14 +25,14 @@ module dmi_jtag #(
 
   // active-low glitch free reset signal. Is asserted for one dmi clock cycle
   // (clk_i) whenever the dmi_jtag is reset (POR or functional reset).
-  output logic         dmi_rst_no,
-  output dm::dmi_req_t dmi_req_o,
-  output logic         dmi_req_valid_o,
-  input  logic         dmi_req_ready_i,
+  (* keep *) output logic         dmi_rst_no,
+  (* keep *) output dm::dmi_req_t dmi_req_o,
+  (* keep *) output logic         dmi_req_valid_o,
+  (* keep *) input  logic         dmi_req_ready_i,
 
-  input dm::dmi_resp_t dmi_resp_i,
-  output logic         dmi_resp_ready_o,
-  input  logic         dmi_resp_valid_i,
+  (* keep *) input dm::dmi_resp_t dmi_resp_i,
+  (* keep *) output logic         dmi_resp_ready_o,
+  (* keep *) input  logic         dmi_resp_valid_i,
 
   input  logic         tck_i,    // JTAG test clock pad
   input  logic         tms_i,    // JTAG test mode select pad
@@ -42,13 +42,20 @@ module dmi_jtag #(
   output logic         tdo_oe_o  // Data out output enable
 );
 
+  logic [1:0] tck_last;
+  logic tck_posedge, tck_negedge;
+
+  always @(posedge clk_i)
+    tck_last <= {tck_last[0], tck_i};
+  assign tck_posedge = (tck_last == 2'b01);
+  assign tck_negedge = (tck_last == 2'b10);
+
   typedef enum logic [1:0] {
     DMINoError = 2'h0, DMIReservedError = 2'h1,
     DMIOPFailed = 2'h2, DMIBusy = 2'h3
   } dmi_error_e;
   dmi_error_e error_d, error_q;
 
-  logic tck;
   logic jtag_dmi_clear; // Synchronous reset of DMI triggered by TestLogicReset in
                         // jtag TAP
   logic dmi_clear; // Functional (warm) reset of the entire DMI
@@ -89,10 +96,10 @@ module dmi_jtag #(
     end
   end
 
-  always_ff @(posedge tck or negedge trst_ni) begin
+  always_ff @(posedge clk_i or negedge trst_ni) begin
     if (!trst_ni) begin
       dtmcs_q <= '0;
-    end else begin
+    end else if (tck_posedge) begin
       dtmcs_q <= dtmcs_d;
     end
   end
@@ -282,14 +289,14 @@ module dmi_jtag #(
     end
   end
 
-  always_ff @(posedge tck or negedge trst_ni) begin
+  always_ff @(posedge clk_i or negedge trst_ni) begin
     if (!trst_ni) begin
       dr_q      <= '0;
       state_q   <= Idle;
       address_q <= '0;
       data_q    <= '0;
       error_q   <= DMINoError;
-    end else begin
+    end else if (tck_posedge) begin
       dr_q      <= dr_d;
       state_q   <= state_d;
       address_q <= address_d;
@@ -305,14 +312,15 @@ module dmi_jtag #(
     .IrLength (5),
     .IdcodeValue(IdcodeValue)
   ) i_dmi_jtag_tap (
-    .tck_i,
+    .clk_i,
+    .tck_posedge_i(tck_posedge),
+    .tck_negedge_i(tck_negedge),
     .tms_i,
     .trst_ni,
     .td_i,
     .td_o,
     .tdo_oe_o,
     .testmode_i,
-    .tck_o          ( tck              ),
     .dmi_clear_o    ( jtag_dmi_clear   ),
     .update_o       ( update           ),
     .capture_o      ( capture          ),
@@ -323,13 +331,13 @@ module dmi_jtag #(
     .dmi_select_o   ( dmi_select       ),
     .dmi_tdo_i      ( dmi_tdo          )
   );
-
+/*
   // ---------
   // CDC
   // ---------
   dmi_cdc i_dmi_cdc (
     // JTAG side (master side)
-    .tck_i                ( tck              ),
+    .tck_i                ( clk_i            ), // TODO
     .trst_ni              ( trst_ni          ),
     .jtag_dmi_cdc_clear_i ( dmi_clear        ),
     .jtag_dmi_req_i       ( dmi_req          ),
@@ -349,5 +357,30 @@ module dmi_jtag #(
     .core_dmi_ready_o     ( dmi_resp_ready_o ),
     .core_dmi_valid_i     ( dmi_resp_valid_i )
   );
+*/
+
+  // Fake "CDC" that's really just handshaking across enable domains
+  logic dmi_clear_last;
+  always @(posedge clk_i) begin
+    dmi_rst_no <= 1'b1;
+    dmi_clear_last <= dmi_clear;
+
+    if (tck_posedge && dmi_req_valid)
+      dmi_req_valid_o <= 1'b1;
+    else if (dmi_req_ready_i)
+      dmi_req_valid_o <= 1'b0;
+    dmi_req_o <= dmi_req;
+
+    if (dmi_clear) begin
+      if (!dmi_clear_last)
+        dmi_rst_no <= 1'b0;
+      dmi_req_valid_o <= 1'b0;
+    end
+  end
+
+  assign dmi_resp = dmi_resp_i;
+  assign dmi_resp_valid = dmi_resp_valid_i;
+  assign dmi_resp_ready_o = dmi_resp_ready && tck_posedge;
+  assign dmi_req_ready = dmi_req_ready_i;
 
 endmodule : dmi_jtag
